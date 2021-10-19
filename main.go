@@ -111,20 +111,23 @@ func GetConfigFormat() string {
 	}
 }
 
-func startV2Ray() (core.Server, error) {
+func startV2Ray() ([]core.Server, error) {
 	configFiles := getConfigFilePath()
+	var all []core.Server
 
-	config, err := core.LoadConfig(GetConfigFormat(), configFiles[0], configFiles)
-	if err != nil {
-		return nil, newError("failed to read config files: [", configFiles.String(), "]").Base(err)
+	for _, v := range configFiles {
+		config, err := core.LoadConfig(GetConfigFormat(), v, cmdarg.Arg{v})
+		if err != nil {
+			return nil, newError("failed to read config files: [", configFiles.String(), "]").Base(err)
+		}
+
+		server, err := core.New(config)
+		if err != nil {
+			return nil, newError("failed to create server").Base(err)
+		}
+		all = append(all, server)
 	}
-
-	server, err := core.New(config)
-	if err != nil {
-		return nil, newError("failed to create server").Base(err)
-	}
-
-	return server, nil
+	return all, nil
 }
 
 func printVersion() {
@@ -155,11 +158,18 @@ func main() {
 		os.Exit(0)
 	}
 
-	if err := server.Start(); err != nil {
-		fmt.Println("Failed to start", err)
-		os.Exit(-1)
+	for _, v := range server {
+		if err := v.Start(); err != nil {
+			fmt.Println("Failed to start", err)
+			os.Exit(-1)
+		}
 	}
-	defer server.Close()
+
+	defer func() {
+		for _, v := range server {
+			v.Close()
+		}
+	}()
 
 	// Explicitly triggering GC to remove garbage from config loading.
 	runtime.GC()
